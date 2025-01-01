@@ -5,7 +5,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast::Receiver;
 use crate::config::config_json::ConfigJson;
 use crate::config::local_json::LocalJson;
-use crate::proxy::http::Http;
+use crate::proxy::http::{self, Http};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -27,7 +27,7 @@ pub struct Work {
 }
 
 impl Work {
-    pub async fn start_service(id:usize, mut _local_rx: Receiver<LocalJson>, mut config_rx: Receiver<ConfigJson>) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start_service(id:usize, mut _local_rx: Receiver<LocalJson>, mut config_rx: Receiver<ConfigJson>) -> Result<(), std::io::Error> {
         let mut work = Work::new(id);
         loop {
             tokio::select! {
@@ -38,7 +38,7 @@ impl Work {
                 }
                 msg = config_rx.recv() => {
                     if let Ok(message) = msg {
-                        work.update_config(message);
+                        work.update_config(message).await;
                     }
                 }
                 _http_socket = Http::accept_service(&work.thread_http_server) => {
@@ -55,23 +55,39 @@ impl Work {
         Ok(())
     }
 
-    pub fn update_config(&mut self, config_json: ConfigJson) {
-        if self.thread_config_json.is_none() {
-
-            self.thread_config_json = Some(config_json);
-        }
-    }
-    pub fn update_local(&mut self, local_json: LocalJson) {
+    
+    fn update_local(&mut self, local_json: LocalJson) {
         self.thread_local_json = Some(local_json);
     }
 
+    async fn update_config(&mut self, new_config_json: ConfigJson) {
+       if !new_config_json.is_listen_mode() {
+            self.thread_config_json = Some(new_config_json);
+            self.thread_http_server = None;
+            return ;
+        }
+        /* new is listen mode */
+        if self.thread_config_json.is_none() {
+            let http_listen = TcpListener::bind("0.0.0.0:2128").await.expect("Failed to bind to 0.0.0.0:2128");
+            self.thread_config_json = Some(new_config_json);
+            self.thread_http_server = Some(http_listen);
+            return ;
+        }
+        /* self thread_config_json is not none */
+        if !self.thread_config_json.as_ref().unwrap().is_listen_mode() {
+            let http_listen = TcpListener::bind("0.0.0.0:2128").await.expect("Failed to bind to 0.0.0.0:2128");
+            self.thread_config_json = Some(new_config_json);
+            self.thread_http_server = Some(http_listen);
+        }
+        /* self thread_config_json is listen mode */
+        return ;
+    }
 
     pub fn new(id:usize) -> Self {
         return Work {
             _thread_id: id,
             thread_local_json: None,
             thread_config_json: None,
-
             thread_http_server: None
         }
     }

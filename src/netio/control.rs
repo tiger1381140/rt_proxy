@@ -88,7 +88,7 @@ impl Control {
             let config_rx = self.config_tx.subscribe();
             runtime.spawn(async move {
                 println!("运行时 {} 开始工作", i);
-                Work::start_service(i, local_rx, config_rx);
+                Work::start_service(i, local_rx, config_rx).await;
             })
         }).collect();
 

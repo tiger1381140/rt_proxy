@@ -25,10 +25,12 @@ impl ConfigJson {
     pub fn watch() -> Receiver<()> {
         return common_watch_file(CONFIG_JSON_FILE);
     }
-    
-    pub fn get_client_mode(&self) -> String {
-        return self.client_mode.clone();
-    }
+    pub fn is_listen_mode(&self) -> bool {
+        if self.client_mode == "BRIDGE" {
+            return true;
+        }
+        return false;
+    }   
 }
 
 impl Default for ConfigJson {  // 因为使用了 serde(default)，需要实现 Default

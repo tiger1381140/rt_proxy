@@ -2,9 +2,10 @@
 use tokio;
 //use tokio::net::{TcpListener, TcpStream};
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
 use crate::config::{config_json::ConfigJson, local_json::LocalJson};
-use std::{net::TcpStream, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct _FiveInfo {
@@ -46,9 +47,9 @@ pub struct Http {
 }
 
 impl Http {
-    pub async fn accept_service(http_listen: &Option<TcpListener>) -> Result<tokio::net::TcpStream, Box<dyn std::error::Error>> {
+    pub async fn accept_service(http_listen: &Option<TcpListener>) -> Result<TcpStream, std::io::Error> {
         if http_listen.is_none() {
-            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "HTTP 监听器为空")));
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "HTTP 监听器为空"));
         }
         let listener = http_listen.as_ref().unwrap();
         let (mut socket, _) = listener.accept().await?;
