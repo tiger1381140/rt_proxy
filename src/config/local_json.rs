@@ -1,13 +1,13 @@
+use crate::common::common_file::*;
 use futures::channel::mpsc::Receiver;
 use serde_json::Value;
-use crate::common::common_file::*;
 
 const LOCAL_JSON_FILE: &str = "/usr/setup/NetworkDLP/config/NDLP/Local.json";
 
 #[derive(Clone)]
 pub struct LocalConfigMirror {
     pub _enable: bool,
-    pub _interface: String
+    pub _interface: String,
 }
 
 #[derive(Clone)]
@@ -21,7 +21,7 @@ pub struct LocalConfigIcapRemote {
 pub struct LocalJson {
     pub _mirror: LocalConfigMirror,
     pub _icap_remote: LocalConfigIcapRemote,
-    pub thread_num: u16
+    pub thread_num: u16,
 }
 
 impl LocalJson {
@@ -40,7 +40,10 @@ impl LocalJson {
         // 从 JSON 中提取各个字段
         let mirror = LocalConfigMirror {
             _enable: json["mirror"]["enable"].as_bool().unwrap_or(false),
-            _interface: json["mirror"]["interface"].as_str().unwrap_or("").to_string(),
+            _interface: json["mirror"]["interface"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
         };
 
         let icap_remote = LocalConfigIcapRemote {

@@ -1,6 +1,6 @@
-use tokio::runtime::Runtime;
-use futures::{future, StreamExt};
 use futures::channel::mpsc;
+use futures::{future, StreamExt};
+use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
 
 use crate::config::config_json::ConfigJson;
@@ -47,7 +47,7 @@ impl Control {
             config_json: config_json,
             config_watch_rx: config_watch_rx,
             config_tx: config_tx,
-            runtimes: runtimes
+            runtimes: runtimes,
         })
     }
 
@@ -83,16 +83,20 @@ impl Control {
     }
 
     pub async fn start_service(&mut self) -> Result<u32, String> {
-        let mut tasks: Vec<_> = self.runtimes.iter().enumerate().map(|(i, runtime)| {
-            let local_rx = self.local_tx.subscribe();
-            let config_rx = self.config_tx.subscribe();
-            runtime.spawn(async move {
-                println!("运行时 {} 开始工作", i);
-                Work::start_service(i, local_rx, config_rx).await;
+        let mut tasks: Vec<_> = self
+            .runtimes
+            .iter()
+            .enumerate()
+            .map(|(i, runtime)| {
+                let local_rx = self.local_tx.subscribe();
+                let config_rx = self.config_tx.subscribe();
+                runtime.spawn(async move {
+                    println!("运行时 {} 开始工作", i);
+                    let _ = Work::start_service(i, local_rx, config_rx).await;
+                })
             })
-        }).collect();
+            .collect();
 
-        
         let _ = self.local_tx.send(self.local_json.clone());
         let _ = self.config_tx.send(self.config_json.clone());
 
@@ -126,6 +130,4 @@ impl Control {
 
         Ok(self.runtimes.len() as u32)
     }
-
 }
-

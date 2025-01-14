@@ -1,7 +1,7 @@
-use futures::channel::mpsc::Receiver;
-use serde_json;
 use crate::common::common_file::*;
+use futures::channel::mpsc::Receiver;
 use serde::{Deserialize, Serialize};
+use serde_json;
 
 const CONFIG_JSON_FILE: &str = "/usr/setup/NetworkDLP/config/NDLP/NdlpConfig.json";
 
@@ -13,7 +13,7 @@ pub struct ConfigJson {
 
 impl ConfigJson {
     pub fn new() -> Option<Self> {
-        let content= match common_open_file(CONFIG_JSON_FILE) {
+        let content = match common_open_file(CONFIG_JSON_FILE) {
             Some(c) => c,
             None => return None,
         };
@@ -30,10 +30,11 @@ impl ConfigJson {
             return true;
         }
         return false;
-    }   
+    }
 }
 
-impl Default for ConfigJson {  // 因为使用了 serde(default)，需要实现 Default
+impl Default for ConfigJson {
+    // 因为使用了 serde(default)，需要实现 Default
     fn default() -> Self {
         Self {
             client_mode: String::new(),
