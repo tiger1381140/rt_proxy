@@ -1,8 +1,8 @@
 mod common;
 mod config;
 mod netio;
+mod protocol;
 mod proxy;
-
 use crate::netio::control::*;
 use env_logger;
 use tokio;

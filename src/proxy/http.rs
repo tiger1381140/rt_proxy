@@ -1,76 +1,110 @@
-use libc::{c_int, getsockopt, sockaddr_in, socklen_t};
-use std::mem;
-use std::os::unix::io::AsRawFd;
+use crate::common::common_net::common_get_orig_dst;
+use crate::protocol::http::ProtoHttpCtx;
+
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-
-const SOL_IP: c_int = 0; // 获取原始目的地址的选项
-const SO_ORIGINAL_DST: c_int = 80; // 获取原始目的地址的选项
 
 pub enum UpDownBuffer {
     _Up(Vec<u8>),
     _Down(Vec<u8>),
 }
 
-pub struct _FiveInfo {
-    pub _src_ipv4: u32,
-    pub _dst_ipv4: u32,
-    pub _src_port: u16,
-    pub _dst_port: u16,
-    pub _protocol: u8,
-}
-
 pub struct Http {
-    pub _icap_socket: TcpStream,
-    pub _down_buffer: Vec<Vec<u8>>,
-    pub _icap_buffer: Vec<Vec<u8>>,
-    pub _up_buffer: Vec<Vec<u8>>,
+    pub head_down_buffer: Vec<u8>,
+    pub body_down_buffer: Vec<u8>,
+
+    pub head_up_buffer: Vec<u8>,
+    pub body_up_buffer: Vec<u8>,
+
+    pub _icap_buffer: Vec<u8>,
+    pub http_ctx: ProtoHttpCtx,
 }
 
 impl Http {
-    pub fn new(icap_socket: TcpStream) -> Self {
+    pub fn new() -> Self {
         Self {
-            _icap_socket: icap_socket,
-            _down_buffer: Vec::new(),
+            head_down_buffer: Vec::new(),
+            body_down_buffer: Vec::new(),
+
+            head_up_buffer: Vec::new(),
+            body_up_buffer: Vec::new(),
             _icap_buffer: Vec::new(),
-            _up_buffer: Vec::new(),
+            http_ctx: ProtoHttpCtx::new(),
         }
-    }
-
-    fn get_orig_dst(down_socket: &TcpStream) -> Result<std::net::SocketAddr, std::io::Error> {
-        let mut addr: sockaddr_in = unsafe { mem::zeroed() };
-        let mut addr_len = mem::size_of::<sockaddr_in>() as socklen_t;
-
-        let ret = unsafe {
-            getsockopt(
-                down_socket.as_raw_fd(),
-                SOL_IP,
-                SO_ORIGINAL_DST,
-                &mut addr as *mut _ as *mut _,
-                &mut addr_len,
-            )
-        };
-
-        if ret == -1 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "获取原始目的地址失败",
-            ));
-        }
-
-        let ip = std::net::Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr));
-        let port = u16::from_be(addr.sin_port);
-        Ok(std::net::SocketAddr::new(std::net::IpAddr::V4(ip), port))
     }
 
     fn read_service_up(&mut self, buffer: &mut [u8], size: usize) -> Option<Vec<u8>> {
-        return Some(buffer[0..size].to_vec());
+        // 如果不符合不合法，则将数据发生给http client端
+        if !self.http_ctx.is_valid() {
+            return Some(buffer[0..size].to_vec());
+        }
+
+        // 如果已经解析了请求头，则将数据推入到head_up_buffer中, 延迟发送给icap server端
+        if self.http_ctx.resp_seen_head() {
+            self.http_ctx.resp_seen_bytes_inc(size as u64);
+            self.body_up_buffer.extend_from_slice(buffer);
+            return None;
+        }
+
+        // 后续数据不能使用buffer；而要使用head_up_buffer
+        self.head_up_buffer.extend_from_slice(buffer);
+
+        let head_size = self.http_ctx.parse_http_resp_header(&self.head_up_buffer);
+        // 如果不合法，则将数据发生给http client端
+        if !self.http_ctx.is_valid() {
+            return Some(self.head_up_buffer.drain(..).collect());
+        }
+
+        // 如果已经解析了请求头，则将数据推入到body_up_buffer中, 延迟发生给icap server端
+        if self.http_ctx.resp_seen_head() {
+            self.body_up_buffer
+                .extend(self.head_up_buffer.drain(head_size..));
+            return None;
+        }
+
+        // 长度不够，继续收包
+        assert!(head_size == 0, "head_size is 0");
+        return None;
     }
 
     fn read_service_down(&mut self, buffer: &mut [u8], size: usize) -> Option<Vec<u8>> {
-        return Some(buffer[0..size].to_vec());
+        // 如果不符合不合法，则将数据发生给http server端
+        if !self.http_ctx.is_valid() {
+            return Some(buffer[0..size].to_vec());
+        }
+
+        // 如果已经解析了请求头，则将数据推入到body_down_buffer中, 延迟发送给icap server端
+        if self.http_ctx.req_seen_head() {
+            self.http_ctx.req_seen_bytes_inc(size as u64);
+            self.body_down_buffer.extend_from_slice(buffer);
+            return None;
+        }
+
+        // 后续数据不能使用buffer；而要使用head_down_buffer
+        self.head_down_buffer.extend_from_slice(buffer);
+
+        let head_size = self.http_ctx.parse_http_req_header(&self.head_down_buffer);
+        // 如果不合法，则将数据发生给http server端
+        if !self.http_ctx.is_valid() {
+            return Some(self.head_down_buffer.drain(..).collect());
+        }
+
+        // 如果已经解析了请求头，则将数据推入到body_down_buffer中, 延迟发送给icap server端
+        if self.http_ctx.req_seen_head() {
+            self.body_down_buffer
+                .extend(self.head_down_buffer.drain(head_size..));
+            return None;
+        }
+
+        // 长度不够，继续收包
+        assert!(head_size == 0, "head_size is 0");
+        return None;
+    }
+
+    fn read_service_icap(&mut self, _buffer: &mut [u8], _size: usize) -> Option<UpDownBuffer> {
+        return None;
     }
 
     async fn pending_service(&mut self) -> Option<UpDownBuffer> {
@@ -92,19 +126,19 @@ impl Http {
     }
 
     pub async fn process_service(mut down_socket: TcpStream) -> Result<(), std::io::Error> {
-        let icap_socket = TcpStream::connect("127.0.0.1:1344").await?;
+        let mut icap_socket = TcpStream::connect("127.0.0.1:1344").await?;
 
-        let orig_dst = Self::get_orig_dst(&down_socket)?;
+        let orig_dst = common_get_orig_dst(&down_socket)?;
         let mut up_socket = TcpStream::connect(orig_dst).await?;
 
-        let mut http = Http::new(icap_socket);
+        let mut http = Http::new();
         let mut buffer_down = [0u8; 8192];
         let mut buffer_up = [0u8; 8192];
-
+        let mut buffer_icap = [0u8; 8192];
         loop {
             tokio::select! {
-                up_socket_msg = up_socket.read(&mut buffer_up) => {
-                    match up_socket_msg {
+                msg = up_socket.read(&mut buffer_up) => {
+                    match msg {
                         Ok(n) => {
                             if n == 0 { break; }
                             let msg = http.read_service_up(&mut buffer_up, n);
@@ -117,14 +151,31 @@ impl Http {
                     }
                 }
 
-                down_socket_msg = down_socket.read(&mut buffer_down) => {
-                    match down_socket_msg {
+                msg = down_socket.read(&mut buffer_down) => {
+                    match msg {
                         Ok(n) => {
                             if n == 0 { break; }
                             let msg = http.read_service_down(&mut buffer_down, n);
                             if msg.is_some() {
                                 let msg = msg.unwrap();
                                 up_socket.write_all(&msg).await?;
+                            }
+                        }
+                        Err(e) => { return Err(e); }
+                    }
+                }
+
+                msg = icap_socket.read(&mut buffer_icap) => {
+                    match msg {
+                        Ok(n) => {
+                            if n == 0 { break; }
+                            let msg = http.read_service_icap(&mut buffer_icap, n);
+                            if msg.is_some() {
+                                let msg = msg.unwrap();
+                                match msg {
+                                    UpDownBuffer::_Up(msg) => { up_socket.write_all(&msg).await?; }
+                                    UpDownBuffer::_Down(msg) => { down_socket.write_all(&msg).await?; }
+                                }
                             }
                         }
                         Err(e) => { return Err(e); }
