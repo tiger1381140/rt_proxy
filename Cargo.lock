@@ -301,6 +301,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
+name = "icaparse"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a72498a1ad033e1462f25c9cb6dc0cbeb4a48b8e2ed8315d07c6fb2865dbb3"
+dependencies = [
+ "httparse",
+]
+
+[[package]]
 name = "inotify"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -558,6 +567,7 @@ dependencies = [
  "futures",
  "http",
  "httparse",
+ "icaparse",
  "libc",
  "log",
  "notify",

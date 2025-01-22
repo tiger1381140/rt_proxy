@@ -80,6 +80,10 @@ impl ProtoHttpCtx {
         !self.not_valid
     }
 
+    pub fn set_valid(&mut self, valid: bool) {
+        self.not_valid = !valid;
+    }
+
     /*  解析请求头
      * 解析成功，返回解析到的字节数；
      * 如果解析失败，则返回0 且 设置http非法
@@ -88,7 +92,7 @@ impl ProtoHttpCtx {
     pub fn parse_http_req_header(&mut self, data: &[u8]) -> usize {
         self.resp_seen_head_set(false);
 
-        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut headers = [httparse::EMPTY_HEADER; 32];
         let mut req = Request::new(&mut headers);
 
         // 解析 Header
@@ -99,11 +103,7 @@ impl ProtoHttpCtx {
                 println!("Method: {}", self.req.http_method);
                 println!("Path: {}", req.path.unwrap());
                 for header in req.headers {
-                    println!(
-                        "Header: {} => {}",
-                        header.name,
-                        String::from_utf8_lossy(header.value)
-                    );
+                    println!("Header: {} => {}", header.name, String::from_utf8_lossy(header.value));
                 }
                 self.req_seen_head_set(true);
                 self.req_seen_bytes_inc(data.len() as u64);
@@ -130,7 +130,7 @@ impl ProtoHttpCtx {
         self.req_seen_head_set(false);
 
         // 定义存储 HTTP 头部的数组
-        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut headers = [httparse::EMPTY_HEADER; 32];
         let mut res = Response::new(&mut headers);
 
         // 解析 Header
